@@ -1,934 +1,929 @@
 Certified Kubernetes Security Specialist (CKS) for 2021
 ----
-Section 25: System Hardening - Kernel Hardening
+--------
+Section 2: Create Kubernetes Cluster
 
-80. AppArmor
-AppArmor is a Linux Kernel Security Module that allows the system administrator to restrict programs capabilities with per-program profiles. Profiles can allow capabilities like network access, raw socket access and permission to read, write or execute files on matching paths.
+2. Create kubernetes Cluster and look at some ERRORS!!
 
-81. AppArmor for curl
+create cluster using kubeadm
 
-curl facebook.ccm -v
-aa-status
-
-#Create a profiles
-#Install apparmor utils
-
-apt install apparmor-utils -y
-
-#generate
-aa-genprof
-
-aa-genprof curl
-#Press F for finish
-
-#let curl the page
-curl facebook.com -v
-
-aa-status
-press F
-
-#Check the changes
-curl usr.bin.curl
-
-cd /etc/apparmor.d
-ls
-cat usr.bin.curl
-
-aa-logprof
-#Press A to allow
-
-82. Create a profile for nginx container
-
-vim /etc/apparmor.d/docker-nginx
-
-	#include <tunables/global>
+#spin out instances
 
 
-profile docker-nginx flags=(attach_disconnected,mediate_deleted) {
-  #include <abstractions/base>
+3. To create cluster in easy way just download these files
 
-  network inet tcp,
-  network inet udp,
-  network inet icmp,
-
-  deny network raw,
-
-  deny network packet,
-
-  file,
-  umount,
-
-  deny /bin/** wl,
-  deny /boot/** wl,
-  deny /dev/** wl,
-  deny /etc/** wl,
-  deny /home/** wl,
-  deny /lib/** wl,
-  deny /lib64/** wl,
-  deny /media/** wl,
-  deny /mnt/** wl,
-  deny /opt/** wl,
-  deny /proc/** wl,
-  deny /root/** wl,
-  deny /sbin/** wl,
-  deny /srv/** wl,
-  deny /tmp/** wl,
-  deny /sys/** wl,
-  deny /usr/** wl,
-
-  audit /** w,
-
-  /var/run/nginx.pid w,
-
-  /usr/sbin/nginx ix,
-
-  deny /bin/dash mrwklx,
-  deny /bin/sh mrwklx,
-  deny /usr/bin/top mrwklx,
+files: C:\Users\Pranavi\Downloads\install_master.sh
+C:\Users\Pranavi\Downloads\install_worker.sh
 
 
-  capability chown,
-  capability dac_override,
-  capability setuid,
-  capability setgid,
-  capability net_bind_service,
+----------
+Section 3: Cluster Setup - Use Network security policies to restrict cluster level access
 
-  deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
-  # deny write to files not in /proc/<number>/** or /proc/sys/**
-  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9]*}/** w,
-  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
-  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
-  deny @{PROC}/sysrq-trigger rwklx,
-  deny @{PROC}/mem rwklx,
-  deny @{PROC}/kmem rwklx,
-  deny @{PROC}/kcore rwklx,
+4. Introduction networkpolicy
+- They are firewall rules in kubernetes
+- Implemented by Network plugins like calico, weave, flannel
+- We can restrict Ingress / Egress for a group of pods based on certain rules and conditions
+	Ingress = Incoming traffic
+	Egress = outgoing traffic
 
-  deny mount,
+What if we dont have network policies
+By default every pod can access to any pod and pods are not isolated as well.
 
-  deny /sys/[^f]*/** wklx,
-  deny /sys/f[^s]*/** wklx,
-  deny /sys/fs/[^c]*/** wklx,
-  deny /sys/fs/c[^g]*/** wklx,
-  deny /sys/fs/cg[^r]*/** wklx,
-  deny /sys/firmware/** rwklx,
-  deny /sys/kernel/security/** rwklx,
-}
+5. Create default deny networkpolicy
+file: C:\Users\Pranavi\Downloads\default-deny.yaml
 
+k get pods
 
-#create a profile
-apparmor_parser /etc/apparmor.d/docker-nginx
+k run pod-1 --image=nginx
 
-#Check for profile
-aa-status
+k run pod-2 --image=nginx
 
-#Create a container witth the docker-nginx profile
-docker run --security-opt apparmor=docker-nginx -d nginx
+k expose pod-1 --port 80
 
-# docker exec -it "container id" sh
+k expose pod-2 --port 80
 
-# touch /root/test
-	output: permission denied
+k get svc,pods
 
-83. AppArmor for Kubernetes Nginx
+k exec -it pod-1 sh
 
-# generate pod defination file
-k run secure --image=nginx -o yaml --dry-run=client > pod.yaml
+	curl pod-2
+	exit
+	
+k exec -it pod-2 bash
+	curl pod-1
+	exit
+	
+k exec pod-1 --curl pod-2
 
-cat pod.yaml
+k exec pod-2 --curl pod-1
 
-vim pod.yaml
-# resource name : https://kubernetes.io/docs/tutorials/clusters/_print/ --> Pod annotation
+#Create a network policy
+reference URL : https://kubernetes.io/docs/concepts/services-networking/network-policies/
 
-#Update annotations
+#copy example file
 
-apiVersion: v1
-kind: Pod
+vim policy-1.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
 metadata:
+  name: test-network-policy
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+
+kubectl apply -f policy-1.yaml
+
+k exec pod-1 --curl pod-2
+#it wont work
+k exec pod-2 --curl pod-1
+#it wont work
+
+6. Create Egress and Ingress Rules
+files:
+C:\Users\Pranavi\Downloads\dns-pod.yaml
+C:\Users\Pranavi\Downloads\egress-pod.yaml
+C:\Users\Pranavi\Downloads\ingress-pod.yaml
+
+#will see how to make communication from pod-1 to pod-2
+
+k get networkpolicy
+
+#create egress policy from pod1 to pod-2
+
+pod-1 -------egress----->>> pod-2
+vim egress.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: egress-pod-1
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      run: pod-1
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          run: pod-2
+
+k apply -f egress.yaml
+
+
+pod-1 <<<-------ingress----- pod-2
+
+vim ingress.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-pod-2
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      run: pod-2
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          run: pod-1
+
+
+k apply -f ingress.yaml
+
+k get networkpolicies
+
+k exec pod-1 -- curl pod-2
+#it failed to do name resolution because default deny policiy block dns as well
+so we can curl with ipaddress
+
+#Create another rule for dns
+
+vim network-policy.yaml
+
+kind: NetworkPolicy
+metadata:
+  name: dns
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+
+k apply -f network-policy.yaml
+
+
+7. Create another network policy for different name space
+
+k create ns prod
+
+k run pod-3 --image=nginx -n prod
+
+k expose pod pod-3  --port=80 -n prod
+
+k edit ns prod
+
+	metadata:
+	  ns: prod
+
+k edit ns default
+
+	metadata:
+	  ns: default
+	  
+#Create egress rules from pod2(default) to pod3(prod)
+
+vim pod-2 network policy
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-pod-2
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      run: pod-2
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          run: pod-1
+  egress:
+  - to:
+    - namespaceSelector:
+	    matchLabels:
+		  ns: prod
+ 
+k apply -f ingress.yaml
+
+#create dns policy in prod namespace
+
+		  
+		  
+Section 4: Cluster Setup - Minimize use of, and access to GUI elements
+8. Install kubernetes Dashboard
+
+#Install Kubernetes Dashboard
+Reference URL : https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/
+
+#Deploying the Dashboard UI
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.4.0/aio/deploy/recommended.yaml
+
+k get ns
+
+k get all -n kubernetes-dashboard
+
+9. Insecure Access from Outside
+
+#Edit kuberneteds deployment
+k edit deploy kubernetes-dashboard
+
+spec:
+  containers:
+  - args:
+    - --insecure-port=9090
+  
+#add an arguement for insecure port
+# delete auto generate certificates
+
+spec:
+  containers:
+  - args:
+    - --auto-generate-certificates
+	#Delete liveness probe or update port
+	livenessProbe:
+	  failureThreshold: 3
+	  httpGet:
+	    path: /
+		port: 9090
+		scheme: HTTP
+	
+#update service from clusterIP to NodePort
+k edit svc
+
+ports:
+- port: 9090
+  protocol: TCP
+  targetPort: 9090
+type: NodePort
+
+k get all -n kubernetes-dashboard
+
+10. RBAC for Kubernetes Dashboard
+
+#default service account dont have permissions
+k get sa -n kubernetes-dashboard
+
+k get clusterrole | grep view
+
+#assign the serviceaccount to view clusterrole
+
+#create rolebinding
+k create rolebinding  insure --serviceaccount kubernetes-dashboard:kubernetes-dashboard --clusterrole view -n kubernetes-dashboard
+
+#refresh brower
+
+#Create clusterrolebinding to have clustewide access
+k create clusterrolebinding  insure --serviceaccount kubernetes-dashboard:kubernetes-dashboard --clusterrole view -n kubernetes-dashboard
+
+----------------
+Section 5: Cluster Setup - Properly set up ingress objects with security control
+
+11. Delete all your NetworkPolicies
+DELETE ALL existing NetworkPolicies from previous session. 
+
+12. Create an Ingress
+Reference URL : https://kubernetes.github.io/ingress-nginx/deploy/
+
+Bare metal clusters¶
+Using NodePort:
+
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.0.5/deploy/static/provider/baremetal/deploy.yaml
+
+kubectl get all -n ingress-nginx
+
+take the worker node ip and try access with nodeport in browser: it gives 404 error
+
+Reference URL: https://kubernetes.io/docs/concepts/services-networking/ingress/
+
+ingress-nginx.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minimal-ingress
   annotations:
-    container.apparmor.security.beta.kubernetes.io/secure: localhost: docker-nginx
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /service1
+        pathType: Prefix
+        backend:
+          service:
+            name: service1
+            port:
+              number: 80
+      - path: /service2
+        pathType: Prefix
+        backend:
+          service:
+            name: service2
+            port:
+              number: 80
+			  
+kubectl run pod1 --image=nginx
 
-:wq!
+kubectl run pod2 --image=nginx
 
-k apply -f pod.yaml
+k apply -f ingress.yaml
+
+k expose pod pod1 --port 80 --name service1
+
+k expose pod pod2 --port 80 --name service2
+
+#test access now
+
+http://<<external ip>>:<<nodeport>>/service1
+
+13. Secure an Ingress
+
+#access securly
+k get nodes -o wide
+
+curl https://<<external ip>>:30949/service2 -kv
+#It will be accessible with fake certificate.
+lets create self singned certificate and access ingress controller
+
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -day 365 -nodes
+	Common Name: secure-ingress.com
+	
+k create secret tls secure-ingress --cert=cert.pem --key=key.pem
+
+ingress-nginx.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: minimal-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  tls:
+  - hosts:
+    -  secure-ingress.com
+	secretName: secure-ingress
+  rules:
+  - host: secure-ingress.com
+    http:
+      paths:
+      - path: /service1
+        pathType: Prefix
+        backend:
+          service:
+            name: service1
+            port:
+              number: 80
+      - path: /service2
+        pathType: Prefix
+        backend:
+          service:
+            name: service2
+            port:
+              number: 80
+
+k apply -f ingress.yaml
+
+
+curl https://<<external ip>>:30949/service2 -kv
+#still shows that the connectivity with fake certificate
+
+curl https://secure-ingress.com:30499/service2 -kv
+
+-----------
+
+Section 6: Protect node metadata and endpoints
+
+14. Accessing Node Metadata
+
+#aws metadata will be accessible from inside container
+
+15. Protect Node Metadata via NetworkPolicy
+
+#create network policy to protect medata data
+
+vim networkpolicy metadata
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metadata-deny
+  namespace: default
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+	    cidr:0.0.0.0/0
+		except:
+		- 169.254.169.254/32
+	
+k apply -f netowrkpolicy.yaml
+
+
+
+
+--------
+Section 7: Use CIS benchmark to review the security configuration of kubernetes components
+
+16. kube-bench
+
+#server hardeing with kube-bench
+reference url: https://github.com/aquasecurity/kube-bench
+
+https://raw.githubusercontent.com/aquasecurity/kube-bench/main/job.yaml
+
+kubectl create -f https://raw.githubusercontent.com/aquasecurity/kube-bench/main/job.yaml
+
+kubectl get pods
+
+kubectl logs kube-bench-6n3cr
+
+
+-------
+
+Section 8: verify platform binaries before deploying
+
+17. Download and verify kubernetes release
+
+kubectl version
+
+wget https://dl.k8s.io/v1.22.0/kubernetes.tar.gz
+
+sha512sum kubernetes-server-linx-amd64.tar.gz
+
+
+18. Verify apiserver binary running in our cluster
+
+kubectl get nodes -o wide
+
+find server binaries
+
+wget https://dl.k8s.io/v1.22.0/kubernetes.tar.gz
+
+tar xzf kubernetes-server-linx-amd64.tar.gz
+
+cd kubernetes/server/bin/
+sha512sum kube-apiserver
+
+#from cluster
+
+docker ps | grep kube-apiserver
+
+#copy all filesystem from container to local server
+docker cp <<container_id>>:/ container
+
+cd container
+ls
+
+find container/ | grep kube-apiserver
+output: container/user/local/bin/kube-apiserver
+
+sha512sum container container/user/local/bin/kube-apiserver
+--------
+Section: 9 Cluster Hardening - RBAC(Role Based Access Control)
+
+19. RBAC - Role and Rolebinding
+Restrict the access to kubernetes resources when accessed by user or any serviceaccount
+
+In kubernetes we have 2 type of resource
+#how to check which resources are namespaced and which are not namespaced
+
+kubectl api-resources --namespaced=false
+#output will give you the resources which are nonsmapaced
+
+kubectl api-resources --namespaced=false
+#namespaced resources will appear
+
+Namespaced:
+	- Role: We can define the set of permissions
+		- Can edit pods
+		- Can read the secrets
+	- Rolebinding: Who get the set of permissions?
+		- Bind a role or cluster role to something or someone
+
+ClusterRole/ClusterRoleBinding --> they apply to all the current and future namespaced or non name spaced(Globally)
+
+
+Non Namespaced:
+	- ClusterRole
+	- ClusterRoleBinding
+	
+20. Role and Rolebinding for a User
+	Handson:
+	- Create namespace prod and deploy
+	- user test can only get secrets in namespace prod
+	- user test can only get and list secrets in namespace deploy
+	also test with auth can-i
+	
+- Create namespace prod and deploy
+k create ns prod
+k create ns deploy
+
+- user test can only get secrets in namespace prod
+k -n prod create role secret-manager --verb=get --resource=secrets
+k -n prod create rolebinding secret-manager --role=secrete=mangager --user=test
+
+k -n deploy create role secret-manager --verb=get --verb=list --resource=secrets
+k -n deploy create rolebinding secret-manager --role=secrete=mangager --user=test
+
+#check the permissions
+k -n prod auth can-i -h
+
+k -n prod auth can-i create pods --as test
+#output : no
+
+k -n prod auth can-i get secrets --as test
+#output: yes
+
+k -n deploy auth can-i get secrets --as test
+#output: yes
+
+21. ClusterRole and ClusterRoleBinding
+
+- Create a clusterRole which allow to delete the deployment
+#Create cluster role
+k create clusterrole delete --verb+delete --resource=deployment
+
+k create clusterrolebinding delete --clusterrole=delete --user=test
+
+#Create rolebinding
+k create ns danger
+
+k -n danger create rolebinding delete --clusterrole=delete --user=new
+
+#test now
+k auth can-i delete deploy --as test -n danger
+#yes
+
+k auth can-i delete deploy --as new -n danger
+#yes
+
+k auth can-i delete deploy --as new
+#no
+
+k auth can-i delete deploy --as new -n default
+#no
+
+- user test can delete the deployment in all namespaces
+- User new can only delete the deployments in danger namespace
+
+
+22. Accounts and Users
+
+Service accounts: 
+Are normally used by machines such as pod's to authenticate to the k8s API server or external services. SA are managed by k8s API it means we can edit, delete and make changes to it.
+
+Normal Users:
+cert+key
+
+
+23. CertificateSingingRequests
+# Create cert + key and authenticate as user interm
+	
+	Create CSR
+	Sign CSR using kubernetes API
+	Use cert+key to connect to Kubernetes API
+	
+#Need to generate the key
+
+openssl genrsa -out intern.key 2048
+
+#create CSR using the key
+openssl req -new -key intern.key -out intern.csr
+
+reference url: https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/
+
+vim csr.yaml
+
+apiVersion: certificates.k8s.io/v1
+kind: CertificateSigningRequest
+metadata:
+  name: interm
+spec:
+  
+  # delete the key and update with the key which we generated
+  #request: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQ1ZqQ0NBVDRDQVFBd0VURVBNQTBHQTFVRUF3d0dZVzVuWld4aE1JSUJJakFOQmdrcWhraUc5dzBCQVFFRgpBQU9DQVE4QU1JSUJDZ0tDQVFFQTByczhJTHRHdTYxakx2dHhWTTJSVlRWMDNHWlJTWWw0dWluVWo4RElaWjBOCnR2MUZtRVFSd3VoaUZsOFEzcWl0Qm0wMUFSMkNJVXBGd2ZzSjZ4MXF3ckJzVkhZbGlBNVhwRVpZM3ExcGswSDQKM3Z3aGJlK1o2MVNrVHF5SVBYUUwrTWM5T1Nsbm0xb0R2N0NtSkZNMUlMRVI3QTVGZnZKOEdFRjJ6dHBoaUlFMwpub1dtdHNZb3JuT2wzc2lHQ2ZGZzR4Zmd4eW8ybmlneFNVekl1bXNnVm9PM2ttT0x1RVF6cXpkakJ3TFJXbWlECklmMXBMWnoyalVnald4UkhCM1gyWnVVV1d1T09PZnpXM01LaE8ybHEvZi9DdS8wYk83c0x0MCt3U2ZMSU91TFcKcW90blZtRmxMMytqTy82WDNDKzBERHk5aUtwbXJjVDBnWGZLemE1dHJRSURBUUFCb0FBd0RRWUpLb1pJaHZjTgpBUUVMQlFBRGdnRUJBR05WdmVIOGR4ZzNvK21VeVRkbmFjVmQ1N24zSkExdnZEU1JWREkyQTZ1eXN3ZFp1L1BVCkkwZXpZWFV0RVNnSk1IRmQycVVNMjNuNVJsSXJ3R0xuUXFISUh5VStWWHhsdnZsRnpNOVpEWllSTmU3QlJvYXgKQVlEdUI5STZXT3FYbkFvczFqRmxNUG5NbFpqdU5kSGxpT1BjTU1oNndLaTZzZFhpVStHYTJ2RUVLY01jSVUyRgpvU2djUWdMYTk0aEpacGk3ZnNMdm1OQUxoT045UHdNMGM1dVJVejV4T0dGMUtCbWRSeEgvbUNOS2JKYjFRQm1HCkkwYitEUEdaTktXTU0xMzhIQXdoV0tkNjVoVHdYOWl4V3ZHMkh4TG1WQzg0L1BHT0tWQW9FNkpsYWFHdTlQVmkKdjlOSjVaZlZrcXdCd0hKbzZXdk9xVlA3SVFjZmg3d0drWm89Ci0tLS0tRU5EIENFUlRJRklDQVRFIFJFUVVFU1QtLS0tLQo=
+  signerName: kubernetes.io/kube-apiserver-client
+  expirationSeconds: 86400  # one day
+  usages:
+  - client auth
+  
+cat inter.csr | base64 -w 0
+#copy the certificate and paste in csr.yaml
+
+#deploy
+k apply -f csr.yaml
+
+k get csr
+#certificate will be pending state and needs manual approval
+
+k certificate approve interm
+
+k get csr
+
+k get csr interm -o yaml
+#copy certificate and create .crt file
+
+echo "<<certificate content">> | base64 -d > interm.crt
+
+k config view
+
+#add user in to config view
+k config set-credentials intern --client=key=intern.key --client-certificate=intern.crt --embed-certs
+
+k config view
+#we can see user now
+
+k config set-context intern --user=intern --cluster=kubernetes
+#output context intern created
+
+k config get-contexts
+
+k config use-context intern
 
 k get pods
 
-84. Seccomp:
-It stands for Secure Computing Mode. It is a security facility in linux kernel and it restricts the execution of syscalls.
+-------
+Section 10: Exercise caution in using service accounts
 
-85. Seccomp for Docker Nginx
-vim default.json
-	C:\Users\Pranavi\Downloads\default.json
-	
-#Create a container
-docker run --security-opt seccomp=default.json nginx
+It is namespaced and SA named default is in everyname space and which can be used by pods.
+when SA is created a Secret is also created with it and in that secret there is token and that token can be used to talk to kubernetes API
 
-#Let's modify default.json
-#delete write
+25. PODs uses custom ServiceAccount
 
-#Create a container again
-docker run --security-opt seccomp=default.json nginx
-	output: docker: Error response from daemon: OCI runtime start failed: cannot start an already running container: unknown
-	
-86. Seccomp for Kubernetes Nginx:
-#move default.json file to kubelet
-cd /var/lib/kubelet
-mkdir seccomp
+k get sa,secrets
 
-mv defaul.json /var/lib/kubelet/seccomp/
+k describe secret default
+	#can see token
 
-vim pod.yaml
-#delete annotation
-#reference : https://kubernetes.io/docs/tutorials/clusters/seccomp/
+#create serviceaccount
+k create sa test
+#there will be token, secret
+#this secrete communicate with kubernetes API and do whatever access it have
+can authenticate against kubernetes Api
 
--------------
-Section 23: Runtime security - Immutability of containers at runtime
-
-Immutability: Containers wont be modified during its lifetime
-Mutable: Access(SSH) VM instances :
-	stop the application
-	update the application
-	restart the application
-	
-Immutability:
-	Create new VM image
-	Delete VM instance
-	Create new VM instance
-	
-#Same case with containers as well.
-Mutable:
-	- Access(SSH) container
-	- Stop the application
-	- update the application
-	- restart the application
-Immutability:
-	- Create new container image
-	- Delete container instance
-	- Create new container instance
-	
-What can we do to ensure that our containers are immutable:
-
-Enforce on container image level:
-	- Remove bash/shell
-	- make file system read only
-	- run as non root/user
-	
-StartupProbe:
-
-74. StartupProbe:
-#Create pod and remove shell
-
-k run immutable --image=httpd -o yaml --dry-run=client > pod.yaml
-
-k apply -f pod.yaml
-
-k exec -it pod immutable bash
-
-exit
-
-#delete pod
-k delete pod --all
-
-reference: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-
-vim pod.yaml
-	apiVersion: v1
-	kind: Pod
-	metadata:
-	  creationTimestamp: null
-	  labels:
-	    run: immutable
-	  name: immutable
-	spec:
-	  containers:
-	  - image: httpd
-	    name: immutable
-		resources: {}
-		startupProbe:
-		  exec:
-		    command:
-			- rm
-			- /bin/bash
-		  initialDelaySeconds: 1
-		  periodSeconds: 5
-	  dnsPolicy: ClusterFirst
-	  restartPolicy: Always
-	status: {}
-
-k apply -f pod.yaml
-
-k exec -it immutable bash
-
-75. SecurityContext renders container immutable
-#make read only permissions to filesystem
-
-#delete pod
-k delete pods --all
-
-vim pod.yaml
-	apiVersion: v1
-	kind: Pod
-	metadata:
-	  creationTimestamp: null
-	  labels:
-	    run: immutable
-	  name: immutable
-	spec:
-	  containers:
-	  - image: httpd
-	    name: immutable
-		resources: {}
-		securityContext:
-		  readOnlyRootFilesystem: true
-	  dnsPolicy: ClusterFirst
-	  restartPolicy: Always
-	status: {}
-
-k apply -f pod.yaml
-
-k logs immutable
-#it gives an error
-
-k delete pod --all
+#Lets create pod
+k run test --image=nginx --dry-run=client -o yaml > pod.yaml
 
 vim pod.yaml
 
-	apiVersion: v1
-	kind: Pod
-	metadata:
-	  creationTimestamp: null
-	  labels:
-	    run: immutable
-	  name: immutable
-	spec:
-	  containers:
-	  - image: httpd
-	    name: immutable
-		resources: {}
-		securityContext:
-		  readOnlyRootFilesystem: true
-		volumeMounts:
-		- mountPath: /test-ebs
-		  name: test-volume
-	  volumes:
-	  - name: test-volume
-	  emptyDir: {}
-	  dnsPolicy: ClusterFirst
-	  restartPolicy: Always
-	status: {}
-
-k get pods
-
+spec:
+  serviceAccount: test
+ 
 k apply -f pod.yaml
 
-k exec -it immutable bash
-
----------------
-Section 24: Runtime Security - Auditing
-
-76. Introduction:
-
-#Kubernetes api request stages:
-	- RequestReceived
-	- ResponseStarted
-	- ResponseComplete
-	- Panic
-
-Each request can be recorded with an associated "stage". The known stages are:
-	- RequestReceived - The stage for events generated as soon as the audit handler receives the request, and before it is delegated down the handler chain.
-	- ResponseStarted - Once the response headers are sent, but before the response body is sent. This stage is only generated for long-running requests(e.g watch).
-	- ResponseComplete - The response body has been completed and no more bytes will be sent.
-	- Panic: Events generated when a panic occured.
+k exec -it pod test bash
+	mount | grep sec
+	#we can see that serviceaccount mounted
+	cd /run/secrets/kubermetes.io/serviceaccount
 	
-77. Audit Policy:
-What events should be recorded and what data should these contain?
-#Audit Policy Rule LEVELS
-	- None: don't log events that match this rule.
-	- Metadata: log request metadata(requesting user, timestamp, resource, verb, etc.) but not request or response body.
-	- Request: log event metadata and request body but not response body. This does not apply for non-resource requests.
-	- RequestResponse: log event metadata, request and response bodies. This does not apply for non-resource requests.
+	ls
 	
-78. Enable Audit logging in ApiServer:
-
-Configure apiServer to store the Audit logs in JSON format
-
-cd /etc/kubernetes/
-mkdir audit
-vim policy.yaml
-C:\Users\Pranavi\Downloads\policy.yaml
-	apiVersion: audit.k8s.io/v1
-	kind: Policy
-	rules:
-	- level: Metadata
+	curl https://kubernetes -k
+	#it gives forbidden error
 	
-#Need to add below lines of code in apiServer
+	curl https://kubernetes -k -H "Authorization: Bearer <<paste token here>>"
+	forbidden user again
+
+26. Disable ServiceAccount mounting
+
+#no need pod to talk with kubernetes api
+reference URL : https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
+
+vim pod.yaml
+
+spec:
+  automountServiceAccountToken: false
+  serviceAccount: test
+  
+k apply -f pod.yaml --force
+
+k exec -it pod test sh
+
+mount | grep sec
+
+kubectl get pods
+
+kubectl describe pod test
+
+
+27. Limit ServiceAccounts permissions using RBAC to edit resources
+
+Limit ServiceAccount permissions using RBAC to edit resources
+
+#by default all pods using default SA - default service account dont have any permissions to do
+
+#let's give RBAC permissions to test sa
+
+k get cluster al| grep edit
+edit
+
+#let's create clusterrole binding for 
+
+#check permissions
+k auth can-i delete secrets --as system:serviceaccount:default"test
+
+#create clusterrole binding for test sa
+k create clusterrolebinding test --clusterrole edit --serviceaccount default:test
+
+#check permissions
+k auth can-i delete secrets --as system:serviceaccount:default"test
+
+------------
+Section 11: Cluster Hardening - Restrict API ACCESS
+
+28. Enable/Disable Anonymous ACCESS
+
+cat /etc/kubernetes/manifests/kube-apiserver.ymal
+
+curl https://localhost:6443 -k
+#forbidden
+
+vim /etc/kubernetes/manifests/kube-apiserver.ymal
 
 spec:
   containers:
   - command:
-    - kube-apiserver
-    - --audit-policy-file=/etc/kubernetes/audit/policy.yaml       # add
-    - --audit-log-path=/etc/kubernetes/audit/logs/audit.log       # add
-    - --audit-log-maxsize=500                                     # add
-    - --audit-log-maxbackup=5                                     # add
+    - --anonymous-auth=false
+
+kubectl get nodes
+
+curl https://localhost:6443 -k
+#unauthorized
+
+
+29. Let's perform a Manual API Request
+
+#certifciate information from kubeconfig file to do manual request
+
+k config view 
+
+k config view --raw
+
+cat ~/.kube/config
+
+echo <<certificate authorizty>> | base64 -d > ca
+
+echo <<client certificate>> | base64 -d > ca.crt
+
+echo <<client key>> | base64 -d > ca.key
+
+curl https://<<ipaddress>>:6443
+
+curl https://<<ipaddress>>:6443 --cacert ca --cert crt --key key
+
+
+30. External ApiServer ACCESS
+
+#how to access kubernetes access from outside
+k get svc
+
+k edit svc
+	type: NodePort
 	
-	volumeMounts:
-    - mountPath: /etc/ssl/certs
-      name: ca-certs
-      readOnly: true
-    - mountPath: /etc/ca-certificates
-      name: etc-ca-certificates
-      readOnly: true
-    - mountPath: /etc/kubernetes/pki
-      name: k8s-certs
-      readOnly: true
-    - mountPath: /usr/local/share/ca-certificates
-      name: usr-local-share-ca-certificates
-      readOnly: true
-    - mountPath: /usr/share/ca-certificates
-      name: usr-share-ca-certificates
-      readOnly: true
-    - mountPath: /etc/kubernetes/audit      # add
-      name: audit                           # add
-  hostNetwork: true
-  priorityClassName: system-node-critical
-  volumes:
-  - hostPath:                               # add
-      path: /etc/kubernetes/audit           # add
-      type: DirectoryOrCreate               # add
-    name: audit                             # add
+k get svc
+
+#on local machines
+curl https://<<external ip address>>:32278
+#forbiddden
+
+#copy kubeconfig file master to local machines
+k config view --raw
+
+k get pods
+
+k get pods --kubeconfig config
+
+k --kubeconfig config get pods
+
+#incase if we get any certificate error
+
+cat /etc/kubernetes/pki/apiserver.crt
+
+openssl x509 -in /etc/kubernetes/pki/apiserver.crt
+
+openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text
+
+31. NodeRestriction AdmissionController
+
+NodeRestriction:
+Admission controller and can be enabled by this arg... --enable-admission-plugins=NodeRestriction
+
+it limit the node labels a kubelet can modify, it can only modify the own node labels and also the pods running on itself not on any node in the cluster.
+
+------------
+
+Section 12: Cluster Hardening - Upgrade Kubernetes
+
+32. Verify NodeRestiction
+
+cat /etc/kubernetes/manifests/kube-apiserver.yaml
+	- --enable-admission-plugins=NodeRestiction
+
+#let's go workder node and see what this controller do
+
+ssh node01
+
+kubectl config view
+
+cat /etc/kubernetes/kubelet.conf
+
+export KUBECONFIG=/etc/kubernetes/kubelet.conf
+kubectl config view
+
+k get ns
+#gives forbidden error
+
+k get nodes
+
+k label node master cks/test=yes
+#it will not modify
+
+#lable node itself
+k label node node cks/test=yes
+#succeed
+
+k label node worker node-restrictions.kubernetes.io/test=yes
+#forbidden
+
+33. Introduction - Update your cluster
+
+Why to update frequently???
+	- Latest support
+	- Security fixes
+	- Bug fixes
+	- Stay up to date for dependencies
 	
-#Wait for few minutes
-
-# check the logs in below path
-
-tail -f /etc/kubernetes/audit/logs/audit.log
-
-79. Create a Secret and Investigate the JSON Audit Logs
-
-k create secret generic my-secret --from-literal=user=pavan
-
-cat audit.log | grep my-secret
-
-#Edit secret
-edit secret my-secret
-
-	apiVersion: v1
-	data:
-	  user: pavan
-	  passwd: Pavan
-	kind: Secret
+How to update cluster:
+	master components --> apiserver, controller-manager, schduler
 	
-cat audit.log | grep my-secret
-------
-
-section 22: Behavioral Analystics at host and container level
-
-strace: Intercepts and log system calls made by the process
-
-ls
-
-strace ls
-
-https://man7.org/linux/man-pages/dir_all_alphabetic.html
-
-67. Strace and /proc on ETCD
-
-docker ps -a | grep etcd
-
-ps -aux | grep etcd
-
-strace -p 11837
-
-strace -p 11837 -cw
-
-ps -aux | grep strace
-
-kill -9 1652985
-
-strace -p 11837 -cw
-
-cd /proc
-
-cd 11837
-
-ls
-
-cd fd
-
-ls
-
-ls -la
-
-#Create a secret
-
-k create secret generic top-secret --from-literal code=123456789
-
-k get secret
-
-tail -f /var/lib/etcd/member/snap/db
-
-cat /var/lib/etcd/member/snap/db
-
-cat 7 | strings | grep 123456789
-
-cat 7 | strings | grep 123456789 -A20 -B20
-
-68. Access/proc and env variables from inside pod
-Create a pod with secret as a env. variable
-
-#create a pod first
-k run apache --image=httpd -o yaml --dry-run=client > pod.yaml
-
-vim pod.yaml
-	apiVersion: v1
-	kind: Pod
-	metadata:
-	  creationTimestamp: null
-	  labels:
-	    run: apache
-	  name: apache
-	spec:
-	  containers:
-	  - image: httpd
-	    name: apache
-		resources: {}
-		env:
-		- name: secret
-		  value: 123456
-
-
-k apply -f pod.yaml
-
-docker ps -a
-
-docker ps -a | grep httpd
-
-#check where is the container is running
-on node01
-
-docker ps -a
-
-k get pods -o wide
-
-docker ps -a
-
-#check the process
-pstree -p
-
-#we can find the httpd process id
-
-cd /proc/<process id>
-cd /proc/1320373
-
-ls -la
-
-cd fd
-ls -la
-
-cat environ
-
-69. FALCO
-It is a cloud native runtime security
-
-ACCESS: It provides deep kernel tracing build on top of linux kernel(So it has an overview about the processes running on the system and it can investigate the activities, like the things which we did manually before)
-ASSERT: It means we can describe security rules against a system(Includes Default one as well) also it detects the unwanted behaviour.
-ACTION: Automated response to a security violations
-
-#Install FALCO
-reference: https://v1-17.docs.kubernetes.io/docs/tasks/debug-application-cluster/falco/
-
-Standalone FALCO
-
-https://falco.org/docs/getting-started/installation/
-
-#Install worker node
-
-curl -s https://falco.org/repo/falcosecurity-3672BA8F.asc | apt-key add -
-echo "deb https://download.falco.org/packages/deb stable main" | tee -a /etc/apt/sources.list.d/falcosecurity.list
-apt-get update -y
-
-apt-get -y install linux-headers-$(uname -r)
-
-apt-get install -y falco
-
-#Verification
-service falco status
-
-service falco start
-service falco enable
-
-cd /etc/falco
-
-cat falco.yaml
-
-#check the logs of syslog
-tail -f /var/log/syslog
-
-tail -f /var/log/syslog | grep falco
-
-70. Use Falco to find malicous process
-
-vim pod.yaml
-#delete environment secrets
-
-apiVersion: v1
-kind: Pod
-metadata:
-  creationTimestamp: null
-  labels:
-    run: apache
-  name: apache-falco
-spec:
-  containers:
-  - image: httpd
-    name: apache-falco
-	resources: {}
-  dnsPolicy: ClusterFirst
-  restartPolicy: Always
-status: {}
-
-k apply -f pod.yaml
-
-k exec -it apache-falco bash
-
-tail -f /var/log/syslog | grep falco
-
-#make some changes on the shell
-
-root@apache-falco:/usr/local/apache2# echo "pavan" > /etc/passwd
-
-apt update
-
-#try install vim on the container
-apt install vim
-
-71. Investigate Falco Rules
-
-cd /etc/falco
-
-cat falco_rules.yaml
-
-72. Change Falco Rule
-
-vim falco_rules.yaml
-
-#Search
-/was spawned
-#Copy the rule
-
-vim falco_rules.local.yaml
-#Paste
-
-#apply falco
-#falco
-
-tail -f /var/log/syslog
-
-#check the process
-ps -aux | grep falco
-
-kill -9 108536
-
-falco
-
-cat /etc/falco/falco_rules.local.yaml
-
-#let's make more changes
-
-vim /etc/falco/falco_rules.local.yaml
-Reference : https://falco.org/docs/rules/supported-fields/
-
-Field Class: evt
-
-#Not required to kill the process nor restart the service
-
-Section 18: Supply Chain Security - Image Footprint
-
-57. Reduce Image Footprint with Multi-Stage
-
-Dockerfile: C:\Users\Pranavi\Downloads\Dokerfile
-app.go: C:\Users\Pranavi\Downloads\app.go
-
-cat Dockerfile
-docker build -t app .
-
-docker image ls | grep app
-
-docker run app
-
-vim Dockerfile
-
-FROM ubuntu
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y golang-go
-COPY app.go .
-RUN CGO_ENABLED=0 go build app.go
-CMD ["./app"]
-
-FROM alpine
-COPY --from=0 /app .
-CMD ["./app"]
-
-docker build -t app .
-
-docker image ls | grep app
-
-docker run app
-
-
-58. Secure and harden Images
-
-#update image version
-
-vim Dockerfile
-
-FROM ubuntu
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y golang-go
-COPY app.go .
-RUN CGO_ENABLED=0 go build app.go
-CMD ["./app"]
-
-FROM alpine:3.14.2
-COPY --from=0 /app .
-CMD ["./app"]
-
-docker build -t app .
-
-#Dont run container as root
-
-vim Dockerfile
-
-FROM ubuntu
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y golang-go
-COPY app.go .
-RUN CGO_ENABLED=0 go build app.go
-CMD ["./app"]
-
-FROM alpine:3.14.2
-RUN addgroup -S addgroup && adduser -S appuser -G appgroup -h /home/appuser
-COPY --from=0 /app /home/appuser
-CMD ["/home/appuser/app"]
-
-docker build -t app .
-
-docker run app
-
-#let switch the user also
-vim Dockerfile
-
-FROM ubuntu
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y golang-go
-COPY app.go .
-RUN CGO_ENABLED=0 go build app.go
-CMD ["./app"]
-
-FROM alpine:3.14.2
-RUN addgroup -S addgroup && adduser -S appuser -G appgroup -h /home/appuser
-COPY --from=0 /app /home/appuser
-USER appuser
-CMD ["/home/appuser/app"]
-
-docker build -t app .
-
-docker run app
-
-#Make filesystem read-only
-vim Dockerfile
-
-FROM ubuntu
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y golang-go
-COPY app.go .
-RUN CGO_ENABLED=0 go build app.go
-CMD ["./app"]
-
-FROM alpine:3.14.2
-RUN chmod a-w /etc
-RUN addgroup -S addgroup && adduser -S appuser -G appgroup -h /home/appuser
-COPY --from=0 /app /home/appuser
-USER appuser
-CMD ["/home/appuser/app"]
-
-docker build -t app .
-
-docker run -d app
-
-docker exec -it app sh
-
-cd /etc/
-
-#Remove shell access
-
-vim Dockerfile
-
-FROM ubuntu
-ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y golang-go
-COPY app.go .
-RUN CGO_ENABLED=0 go build app.go
-CMD ["./app"]
-
-FROM alpine:3.14.2
-RUN chmod a-w /etc
-RUN addgroup -S addgroup && adduser -S appuser -G appgroup -h /home/appuser
-RUN rm -rf /bin/*
-COPY --from=0 /app /home/appuser
-USER appuser
-CMD ["/home/appuser/app"]
-
-docker build -t app .
-
-docker run -d app
-
-docker exec -it app sh
-
----------------
-Section 19: Supply Chain Security - Static Analysis
-59. Kubesec
-Security risk analysis for Kubernetes resources
-Ref: https://kubesec.io/
-
-60. Use kubesec to perform static analysis by using docker image
-#Instead of going outside webpage we can create pod here to test the same
-
-k run nginx --image=nginx -o yaml --dry-run=client > pod.yaml
-cat pod.yaml
-
-docker run -i kubesec/kubesec:512c5e0 scan /dev/stdin < filename
-
-docker run -i kubesec/kubesec:512c5e0 scan /dev/stdin < pod.yaml
-
-vim pod.yaml
-
-apiVersion: v1
-kind: Pod
-metadata:
-  creationTimestamp: null
-  labels:
-    run: nginx
-  name: nginx
-spec:
-  containers:
-  - image: nginx
-    name: nginx
-	resources: {}
-	securityContext
-	  runAsNonRoot: true
-  dnsPolicy: ClusterFirst
-  restartPolicy: Always
-status: {}
-
-docker run -i kubesec/kubesec:512c5e0 scan /dev/stdin < pod.yaml
-
-
-
-61. OPA Conftest
-Reference URL: https://www.conftest.dev/
-Conftest is a utility to help you write tests against structured configuration data. For instance, you could write tests for your kubernetes configurations, Tekton pipeline definitions, Terraform code, Serverless configs or any other structured data.
-
-Unit test framework for kubernetes configuration
-
-#Create deployment yaml file
-
-k create deployment deploy --image=nginx --dry-run=client -o yaml
-
-create policy/deployment.rego
-
-package main
-
-deny[msg] {
-  input.kind == "Deployment"
-  not input.spec.template.spec.securityContext.runAsNonRoot
-
-  msg := "Containers must not run as root"
-}
-
-deny[msg] {
-  input.kind == "Deployment"
-  not input.spec.selector.matchLabels.app
-
-  msg := "Containers must provide app label for pod selectors"
-}
-
-docker run -rm -v $(pwd):/project openpolicyagent/conftest test deployment.yaml
-
-
-
-62. OPA Conftest for Dockerfile
-
-reference code: https://github.com/open-policy-agent/conftest/tree/master/examples/docker
-
-docker run -rm -v $(pwd):/project openpolicyagent/conftest test Dockerfile --all-namespaces
-
--------
-Section 20: Supply Chain Security - Image Vulnerability scanning
-
-63. Use Trivy to scan images
-
-#go docker hub and search for trivy
-docker run aquasec/trivy image nginx
-
-#check for nginx:alpine image
-docker run aquasec/trivy image nginx:alpine
-
-#check vulnerabilities for kubeapi image using inside the cluster
-
-k get pods --all-namespaces
-
-k describe pod kube-apiserver -n kube-system
-
-docker run aquasec/trivy image k8s.gcr.io/kube-apiserver:v1.21.0
-
--------
-Section 21: Supply Chain Security - Secure Supply Chain
-
-64. Image Digest
-
-To make sure that a container always uses the same version of an image, you can specify its digest. The digest idetifies a specific version of the image, so it is never updated by kubernetes
-
-#Lets see all the images using in the cluster
-kubectl get pods -A -o yaml | grep image
-
-#get apiserver digest details
-
-kubectl get pods --all-namespaces
-
-kubectl describe pod kube-apiserver-master -n kube-system
-#Check for digrest and copy
-	Image ID: docker-pullable://k8s.gcr.io/kube-apiserver@sha256:828fefdXXXXXXXXXXXXXXXXXXXXX
+	workder components --> kubelet, kube-proxy
 	
-vim /etc/kubernetes/kube-apiserver.yaml
-	#update Image and save the file
+	components should always have the same minior version of your api server or one minor version below
 	
-65. Whitelist Registries with OPA
+How to upgrade node:
+	
+	#drain the node
+	kubectl drain --> sefely evict all the pods from node(kubectl cordon)
+	
+	#we will update the components, kubectl uncordon (unmark the nodes)
+	
+34. Create a cluster with old version
 
 files:
-trustedimage_template.yaml
-pod_must_have_trusted_image.yaml
+C:\Users\Pranavi\Downloads\master.sh
+C:\Users\Pranavi\Downloads\worker.sh
 
-#apply trustedimage_template.yaml
-k apply -f trustedimage_template.yaml
+35. Upgrade Master and worker node
 
-k get crd
+#check version
+kubectl version
 
-k describe k8strustedimages
-#it shows nothing, we need to create an object with pod-trusted-images
+#drain master
+kubectl drain master
 
-k apply -f pod_must_have_trusted_image.yaml
+kubectl drain master --ignore=daemonsets
 
-k describe k8strustedimages
+#check available minor version
+apt-cache show kubeadm | grep 1.20
 
-#create pod
-kubectl run pod --image=docker.io/nginx
-#run succeed
+apt install kubeadm=1.20.10-00 kubelet=1.20.10-00 kubectl
+kubectl version
 
-kubectl run pod --image=docker1.io/nginx
+kubeadm upgrade plan
 
---------
+kubeadm upgrade apply v1.20.10
+
+#update worker node aswell
+#drain worker node
+
+kubectl drain worker --ignore=daemonsets
+
+apt install kubeadm=1.20.10-00 kubelet=1.20.10-00 kubectl
+kubectl version
+
+kubeadm upgrade node
+
+#master
+kubectl get nodes
+
+kubectl uncordon worker
+kubectl uncordon master
+---------
 Section 13: Microservice Vulnerabilities - Manage Kubernetes Secrets
 
 36. Create Secret
@@ -1591,925 +1586,931 @@ C:\Users\Pranavi\Downloads\ns-cks.yaml
 C:\Users\Pranavi\Downloads\ns-opa.yaml
 
 ---------
-Section: 9 Cluster Hardening - RBAC(Role Based Access Control)
+Section 18: Supply Chain Security - Image Footprint
 
-19. RBAC - Role and Rolebinding
-Restrict the access to kubernetes resources when accessed by user or any serviceaccount
+57. Reduce Image Footprint with Multi-Stage
 
-In kubernetes we have 2 type of resource
-#how to check which resources are namespaced and which are not namespaced
+Dockerfile: C:\Users\Pranavi\Downloads\Dokerfile
+app.go: C:\Users\Pranavi\Downloads\app.go
 
-kubectl api-resources --namespaced=false
-#output will give you the resources which are nonsmapaced
+cat Dockerfile
+docker build -t app .
 
-kubectl api-resources --namespaced=false
-#namespaced resources will appear
+docker image ls | grep app
 
-Namespaced:
-	- Role: We can define the set of permissions
-		- Can edit pods
-		- Can read the secrets
-	- Rolebinding: Who get the set of permissions?
-		- Bind a role or cluster role to something or someone
+docker run app
 
-ClusterRole/ClusterRoleBinding --> they apply to all the current and future namespaced or non name spaced(Globally)
+vim Dockerfile
 
+FROM ubuntu
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y golang-go
+COPY app.go .
+RUN CGO_ENABLED=0 go build app.go
+CMD ["./app"]
 
-Non Namespaced:
-	- ClusterRole
-	- ClusterRoleBinding
-	
-20. Role and Rolebinding for a User
-	Handson:
-	- Create namespace prod and deploy
-	- user test can only get secrets in namespace prod
-	- user test can only get and list secrets in namespace deploy
-	also test with auth can-i
-	
-- Create namespace prod and deploy
-k create ns prod
-k create ns deploy
+FROM alpine
+COPY --from=0 /app .
+CMD ["./app"]
 
-- user test can only get secrets in namespace prod
-k -n prod create role secret-manager --verb=get --resource=secrets
-k -n prod create rolebinding secret-manager --role=secrete=mangager --user=test
+docker build -t app .
 
-k -n deploy create role secret-manager --verb=get --verb=list --resource=secrets
-k -n deploy create rolebinding secret-manager --role=secrete=mangager --user=test
+docker image ls | grep app
 
-#check the permissions
-k -n prod auth can-i -h
-
-k -n prod auth can-i create pods --as test
-#output : no
-
-k -n prod auth can-i get secrets --as test
-#output: yes
-
-k -n deploy auth can-i get secrets --as test
-#output: yes
-
-21. ClusterRole and ClusterRoleBinding
-
-- Create a clusterRole which allow to delete the deployment
-#Create cluster role
-k create clusterrole delete --verb+delete --resource=deployment
-
-k create clusterrolebinding delete --clusterrole=delete --user=test
-
-#Create rolebinding
-k create ns danger
-
-k -n danger create rolebinding delete --clusterrole=delete --user=new
-
-#test now
-k auth can-i delete deploy --as test -n danger
-#yes
-
-k auth can-i delete deploy --as new -n danger
-#yes
-
-k auth can-i delete deploy --as new
-#no
-
-k auth can-i delete deploy --as new -n default
-#no
-
-- user test can delete the deployment in all namespaces
-- User new can only delete the deployments in danger namespace
+docker run app
 
 
-22. Accounts and Users
+58. Secure and harden Images
 
-Service accounts: 
-Are normally used by machines such as pod's to authenticate to the k8s API server or external services. SA are managed by k8s API it means we can edit, delete and make changes to it.
+#update image version
 
-Normal Users:
-cert+key
+vim Dockerfile
 
+FROM ubuntu
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y golang-go
+COPY app.go .
+RUN CGO_ENABLED=0 go build app.go
+CMD ["./app"]
 
-23. CertificateSingingRequests
-# Create cert + key and authenticate as user interm
-	
-	Create CSR
-	Sign CSR using kubernetes API
-	Use cert+key to connect to Kubernetes API
-	
-#Need to generate the key
+FROM alpine:3.14.2
+COPY --from=0 /app .
+CMD ["./app"]
 
-openssl genrsa -out intern.key 2048
+docker build -t app .
 
-#create CSR using the key
-openssl req -new -key intern.key -out intern.csr
+#Dont run container as root
 
-reference url: https://kubernetes.io/docs/reference/access-authn-authz/certificate-signing-requests/
+vim Dockerfile
 
-vim csr.yaml
+FROM ubuntu
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y golang-go
+COPY app.go .
+RUN CGO_ENABLED=0 go build app.go
+CMD ["./app"]
 
-apiVersion: certificates.k8s.io/v1
-kind: CertificateSigningRequest
+FROM alpine:3.14.2
+RUN addgroup -S addgroup && adduser -S appuser -G appgroup -h /home/appuser
+COPY --from=0 /app /home/appuser
+CMD ["/home/appuser/app"]
+
+docker build -t app .
+
+docker run app
+
+#let switch the user also
+vim Dockerfile
+
+FROM ubuntu
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y golang-go
+COPY app.go .
+RUN CGO_ENABLED=0 go build app.go
+CMD ["./app"]
+
+FROM alpine:3.14.2
+RUN addgroup -S addgroup && adduser -S appuser -G appgroup -h /home/appuser
+COPY --from=0 /app /home/appuser
+USER appuser
+CMD ["/home/appuser/app"]
+
+docker build -t app .
+
+docker run app
+
+#Make filesystem read-only
+vim Dockerfile
+
+FROM ubuntu
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y golang-go
+COPY app.go .
+RUN CGO_ENABLED=0 go build app.go
+CMD ["./app"]
+
+FROM alpine:3.14.2
+RUN chmod a-w /etc
+RUN addgroup -S addgroup && adduser -S appuser -G appgroup -h /home/appuser
+COPY --from=0 /app /home/appuser
+USER appuser
+CMD ["/home/appuser/app"]
+
+docker build -t app .
+
+docker run -d app
+
+docker exec -it app sh
+
+cd /etc/
+
+#Remove shell access
+
+vim Dockerfile
+
+FROM ubuntu
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y golang-go
+COPY app.go .
+RUN CGO_ENABLED=0 go build app.go
+CMD ["./app"]
+
+FROM alpine:3.14.2
+RUN chmod a-w /etc
+RUN addgroup -S addgroup && adduser -S appuser -G appgroup -h /home/appuser
+RUN rm -rf /bin/*
+COPY --from=0 /app /home/appuser
+USER appuser
+CMD ["/home/appuser/app"]
+
+docker build -t app .
+
+docker run -d app
+
+docker exec -it app sh
+
+---------------
+Section 19: Supply Chain Security - Static Analysis
+59. Kubesec
+Security risk analysis for Kubernetes resources
+Ref: https://kubesec.io/
+
+60. Use kubesec to perform static analysis by using docker image
+#Instead of going outside webpage we can create pod here to test the same
+
+k run nginx --image=nginx -o yaml --dry-run=client > pod.yaml
+cat pod.yaml
+
+docker run -i kubesec/kubesec:512c5e0 scan /dev/stdin < filename
+
+docker run -i kubesec/kubesec:512c5e0 scan /dev/stdin < pod.yaml
+
+vim pod.yaml
+
+apiVersion: v1
+kind: Pod
 metadata:
-  name: interm
+  creationTimestamp: null
+  labels:
+    run: nginx
+  name: nginx
 spec:
-  
-  # delete the key and update with the key which we generated
-  #request: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURSBSRVFVRVNULS0tLS0KTUlJQ1ZqQ0NBVDRDQVFBd0VURVBNQTBHQTFVRUF3d0dZVzVuWld4aE1JSUJJakFOQmdrcWhraUc5dzBCQVFFRgpBQU9DQVE4QU1JSUJDZ0tDQVFFQTByczhJTHRHdTYxakx2dHhWTTJSVlRWMDNHWlJTWWw0dWluVWo4RElaWjBOCnR2MUZtRVFSd3VoaUZsOFEzcWl0Qm0wMUFSMkNJVXBGd2ZzSjZ4MXF3ckJzVkhZbGlBNVhwRVpZM3ExcGswSDQKM3Z3aGJlK1o2MVNrVHF5SVBYUUwrTWM5T1Nsbm0xb0R2N0NtSkZNMUlMRVI3QTVGZnZKOEdFRjJ6dHBoaUlFMwpub1dtdHNZb3JuT2wzc2lHQ2ZGZzR4Zmd4eW8ybmlneFNVekl1bXNnVm9PM2ttT0x1RVF6cXpkakJ3TFJXbWlECklmMXBMWnoyalVnald4UkhCM1gyWnVVV1d1T09PZnpXM01LaE8ybHEvZi9DdS8wYk83c0x0MCt3U2ZMSU91TFcKcW90blZtRmxMMytqTy82WDNDKzBERHk5aUtwbXJjVDBnWGZLemE1dHJRSURBUUFCb0FBd0RRWUpLb1pJaHZjTgpBUUVMQlFBRGdnRUJBR05WdmVIOGR4ZzNvK21VeVRkbmFjVmQ1N24zSkExdnZEU1JWREkyQTZ1eXN3ZFp1L1BVCkkwZXpZWFV0RVNnSk1IRmQycVVNMjNuNVJsSXJ3R0xuUXFISUh5VStWWHhsdnZsRnpNOVpEWllSTmU3QlJvYXgKQVlEdUI5STZXT3FYbkFvczFqRmxNUG5NbFpqdU5kSGxpT1BjTU1oNndLaTZzZFhpVStHYTJ2RUVLY01jSVUyRgpvU2djUWdMYTk0aEpacGk3ZnNMdm1OQUxoT045UHdNMGM1dVJVejV4T0dGMUtCbWRSeEgvbUNOS2JKYjFRQm1HCkkwYitEUEdaTktXTU0xMzhIQXdoV0tkNjVoVHdYOWl4V3ZHMkh4TG1WQzg0L1BHT0tWQW9FNkpsYWFHdTlQVmkKdjlOSjVaZlZrcXdCd0hKbzZXdk9xVlA3SVFjZmg3d0drWm89Ci0tLS0tRU5EIENFUlRJRklDQVRFIFJFUVVFU1QtLS0tLQo=
-  signerName: kubernetes.io/kube-apiserver-client
-  expirationSeconds: 86400  # one day
-  usages:
-  - client auth
-  
-cat inter.csr | base64 -w 0
-#copy the certificate and paste in csr.yaml
+  containers:
+  - image: nginx
+    name: nginx
+	resources: {}
+	securityContext
+	  runAsNonRoot: true
+  dnsPolicy: ClusterFirst
+  restartPolicy: Always
+status: {}
 
-#deploy
-k apply -f csr.yaml
+docker run -i kubesec/kubesec:512c5e0 scan /dev/stdin < pod.yaml
 
-k get csr
-#certificate will be pending state and needs manual approval
 
-k certificate approve interm
 
-k get csr
+61. OPA Conftest
+Reference URL: https://www.conftest.dev/
+Conftest is a utility to help you write tests against structured configuration data. For instance, you could write tests for your kubernetes configurations, Tekton pipeline definitions, Terraform code, Serverless configs or any other structured data.
 
-k get csr interm -o yaml
-#copy certificate and create .crt file
+Unit test framework for kubernetes configuration
 
-echo "<<certificate content">> | base64 -d > interm.crt
+#Create deployment yaml file
 
-k config view
+k create deployment deploy --image=nginx --dry-run=client -o yaml
 
-#add user in to config view
-k config set-credentials intern --client=key=intern.key --client-certificate=intern.crt --embed-certs
+create policy/deployment.rego
 
-k config view
-#we can see user now
+package main
 
-k config set-context intern --user=intern --cluster=kubernetes
-#output context intern created
+deny[msg] {
+  input.kind == "Deployment"
+  not input.spec.template.spec.securityContext.runAsNonRoot
 
-k config get-contexts
+  msg := "Containers must not run as root"
+}
 
-k config use-context intern
+deny[msg] {
+  input.kind == "Deployment"
+  not input.spec.selector.matchLabels.app
+
+  msg := "Containers must provide app label for pod selectors"
+}
+
+docker run -rm -v $(pwd):/project openpolicyagent/conftest test deployment.yaml
+
+
+
+62. OPA Conftest for Dockerfile
+
+reference code: https://github.com/open-policy-agent/conftest/tree/master/examples/docker
+
+docker run -rm -v $(pwd):/project openpolicyagent/conftest test Dockerfile --all-namespaces
+
+-------
+Section 20: Supply Chain Security - Image Vulnerability scanning
+
+63. Use Trivy to scan images
+
+#go docker hub and search for trivy
+docker run aquasec/trivy image nginx
+
+#check for nginx:alpine image
+docker run aquasec/trivy image nginx:alpine
+
+#check vulnerabilities for kubeapi image using inside the cluster
+
+k get pods --all-namespaces
+
+k describe pod kube-apiserver -n kube-system
+
+docker run aquasec/trivy image k8s.gcr.io/kube-apiserver:v1.21.0
+
+-------
+Section 21: Supply Chain Security - Secure Supply Chain
+
+64. Image Digest
+
+To make sure that a container always uses the same version of an image, you can specify its digest. The digest idetifies a specific version of the image, so it is never updated by kubernetes
+
+#Lets see all the images using in the cluster
+kubectl get pods -A -o yaml | grep image
+
+#get apiserver digest details
+
+kubectl get pods --all-namespaces
+
+kubectl describe pod kube-apiserver-master -n kube-system
+#Check for digrest and copy
+	Image ID: docker-pullable://k8s.gcr.io/kube-apiserver@sha256:828fefdXXXXXXXXXXXXXXXXXXXXX
+	
+vim /etc/kubernetes/kube-apiserver.yaml
+	#update Image and save the file
+	
+65. Whitelist Registries with OPA
+
+files:
+trustedimage_template.yaml
+pod_must_have_trusted_image.yaml
+
+#apply trustedimage_template.yaml
+k apply -f trustedimage_template.yaml
+
+k get crd
+
+k describe k8strustedimages
+#it shows nothing, we need to create an object with pod-trusted-images
+
+k apply -f pod_must_have_trusted_image.yaml
+
+k describe k8strustedimages
+
+#create pod
+kubectl run pod --image=docker.io/nginx
+#run succeed
+
+kubectl run pod --image=docker1.io/nginx
+--------
+section 22: Behavioral Analystics at host and container level
+
+strace: Intercepts and log system calls made by the process
+
+ls
+
+strace ls
+
+https://man7.org/linux/man-pages/dir_all_alphabetic.html
+
+67. Strace and /proc on ETCD
+
+docker ps -a | grep etcd
+
+ps -aux | grep etcd
+
+strace -p 11837
+
+strace -p 11837 -cw
+
+ps -aux | grep strace
+
+kill -9 1652985
+
+strace -p 11837 -cw
+
+cd /proc
+
+cd 11837
+
+ls
+
+cd fd
+
+ls
+
+ls -la
+
+#Create a secret
+
+k create secret generic top-secret --from-literal code=123456789
+
+k get secret
+
+tail -f /var/lib/etcd/member/snap/db
+
+cat /var/lib/etcd/member/snap/db
+
+cat 7 | strings | grep 123456789
+
+cat 7 | strings | grep 123456789 -A20 -B20
+
+68. Access/proc and env variables from inside pod
+Create a pod with secret as a env. variable
+
+#create a pod first
+k run apache --image=httpd -o yaml --dry-run=client > pod.yaml
+
+vim pod.yaml
+	apiVersion: v1
+	kind: Pod
+	metadata:
+	  creationTimestamp: null
+	  labels:
+	    run: apache
+	  name: apache
+	spec:
+	  containers:
+	  - image: httpd
+	    name: apache
+		resources: {}
+		env:
+		- name: secret
+		  value: 123456
+
+
+k apply -f pod.yaml
+
+docker ps -a
+
+docker ps -a | grep httpd
+
+#check where is the container is running
+on node01
+
+docker ps -a
+
+k get pods -o wide
+
+docker ps -a
+
+#check the process
+pstree -p
+
+#we can find the httpd process id
+
+cd /proc/<process id>
+cd /proc/1320373
+
+ls -la
+
+cd fd
+ls -la
+
+cat environ
+
+69. FALCO
+It is a cloud native runtime security
+
+ACCESS: It provides deep kernel tracing build on top of linux kernel(So it has an overview about the processes running on the system and it can investigate the activities, like the things which we did manually before)
+ASSERT: It means we can describe security rules against a system(Includes Default one as well) also it detects the unwanted behaviour.
+ACTION: Automated response to a security violations
+
+#Install FALCO
+reference: https://v1-17.docs.kubernetes.io/docs/tasks/debug-application-cluster/falco/
+
+Standalone FALCO
+
+https://falco.org/docs/getting-started/installation/
+
+#Install worker node
+
+curl -s https://falco.org/repo/falcosecurity-3672BA8F.asc | apt-key add -
+echo "deb https://download.falco.org/packages/deb stable main" | tee -a /etc/apt/sources.list.d/falcosecurity.list
+apt-get update -y
+
+apt-get -y install linux-headers-$(uname -r)
+
+apt-get install -y falco
+
+#Verification
+service falco status
+
+service falco start
+service falco enable
+
+cd /etc/falco
+
+cat falco.yaml
+
+#check the logs of syslog
+tail -f /var/log/syslog
+
+tail -f /var/log/syslog | grep falco
+
+70. Use Falco to find malicous process
+
+vim pod.yaml
+#delete environment secrets
+
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  labels:
+    run: apache
+  name: apache-falco
+spec:
+  containers:
+  - image: httpd
+    name: apache-falco
+	resources: {}
+  dnsPolicy: ClusterFirst
+  restartPolicy: Always
+status: {}
+
+k apply -f pod.yaml
+
+k exec -it apache-falco bash
+
+tail -f /var/log/syslog | grep falco
+
+#make some changes on the shell
+
+root@apache-falco:/usr/local/apache2# echo "pavan" > /etc/passwd
+
+apt update
+
+#try install vim on the container
+apt install vim
+
+71. Investigate Falco Rules
+
+cd /etc/falco
+
+cat falco_rules.yaml
+
+72. Change Falco Rule
+
+vim falco_rules.yaml
+
+#Search
+/was spawned
+#Copy the rule
+
+vim falco_rules.local.yaml
+#Paste
+
+#apply falco
+#falco
+
+tail -f /var/log/syslog
+
+#check the process
+ps -aux | grep falco
+
+kill -9 108536
+
+falco
+
+cat /etc/falco/falco_rules.local.yaml
+
+#let's make more changes
+
+vim /etc/falco/falco_rules.local.yaml
+Reference : https://falco.org/docs/rules/supported-fields/
+
+Field Class: evt
+
+#Not required to kill the process nor restart the service
+
+-------------
+Section 23: Runtime security - Immutability of containers at runtime
+
+Immutability: Containers wont be modified during its lifetime
+Mutable: Access(SSH) VM instances :
+	stop the application
+	update the application
+	restart the application
+	
+Immutability:
+	Create new VM image
+	Delete VM instance
+	Create new VM instance
+	
+#Same case with containers as well.
+Mutable:
+	- Access(SSH) container
+	- Stop the application
+	- update the application
+	- restart the application
+Immutability:
+	- Create new container image
+	- Delete container instance
+	- Create new container instance
+	
+What can we do to ensure that our containers are immutable:
+
+Enforce on container image level:
+	- Remove bash/shell
+	- make file system read only
+	- run as non root/user
+	
+StartupProbe:
+
+74. StartupProbe:
+#Create pod and remove shell
+
+k run immutable --image=httpd -o yaml --dry-run=client > pod.yaml
+
+k apply -f pod.yaml
+
+k exec -it pod immutable bash
+
+exit
+
+#delete pod
+k delete pod --all
+
+reference: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
+
+vim pod.yaml
+	apiVersion: v1
+	kind: Pod
+	metadata:
+	  creationTimestamp: null
+	  labels:
+	    run: immutable
+	  name: immutable
+	spec:
+	  containers:
+	  - image: httpd
+	    name: immutable
+		resources: {}
+		startupProbe:
+		  exec:
+		    command:
+			- rm
+			- /bin/bash
+		  initialDelaySeconds: 1
+		  periodSeconds: 5
+	  dnsPolicy: ClusterFirst
+	  restartPolicy: Always
+	status: {}
+
+k apply -f pod.yaml
+
+k exec -it immutable bash
+
+75. SecurityContext renders container immutable
+#make read only permissions to filesystem
+
+#delete pod
+k delete pods --all
+
+vim pod.yaml
+	apiVersion: v1
+	kind: Pod
+	metadata:
+	  creationTimestamp: null
+	  labels:
+	    run: immutable
+	  name: immutable
+	spec:
+	  containers:
+	  - image: httpd
+	    name: immutable
+		resources: {}
+		securityContext:
+		  readOnlyRootFilesystem: true
+	  dnsPolicy: ClusterFirst
+	  restartPolicy: Always
+	status: {}
+
+k apply -f pod.yaml
+
+k logs immutable
+#it gives an error
+
+k delete pod --all
+
+vim pod.yaml
+
+	apiVersion: v1
+	kind: Pod
+	metadata:
+	  creationTimestamp: null
+	  labels:
+	    run: immutable
+	  name: immutable
+	spec:
+	  containers:
+	  - image: httpd
+	    name: immutable
+		resources: {}
+		securityContext:
+		  readOnlyRootFilesystem: true
+		volumeMounts:
+		- mountPath: /test-ebs
+		  name: test-volume
+	  volumes:
+	  - name: test-volume
+	  emptyDir: {}
+	  dnsPolicy: ClusterFirst
+	  restartPolicy: Always
+	status: {}
 
 k get pods
 
--------
-Section 10: Exercise caution in using service accounts
-
-It is namespaced and SA named default is in everyname space and which can be used by pods.
-when SA is created a Secret is also created with it and in that secret there is token and that token can be used to talk to kubernetes API
-
-25. PODs uses custom ServiceAccount
-
-k get sa,secrets
-
-k describe secret default
-	#can see token
-
-#create serviceaccount
-k create sa test
-#there will be token, secret
-#this secrete communicate with kubernetes API and do whatever access it have
-can authenticate against kubernetes Api
-
-#Lets create pod
-k run test --image=nginx --dry-run=client -o yaml > pod.yaml
-
-vim pod.yaml
-
-spec:
-  serviceAccount: test
- 
 k apply -f pod.yaml
 
-k exec -it pod test bash
-	mount | grep sec
-	#we can see that serviceaccount mounted
-	cd /run/secrets/kubermetes.io/serviceaccount
+k exec -it immutable bash
+
+---------------
+
+Section 24: Runtime Security - Auditing
+
+76. Introduction:
+
+#Kubernetes api request stages:
+	- RequestReceived
+	- ResponseStarted
+	- ResponseComplete
+	- Panic
+
+Each request can be recorded with an associated "stage". The known stages are:
+	- RequestReceived - The stage for events generated as soon as the audit handler receives the request, and before it is delegated down the handler chain.
+	- ResponseStarted - Once the response headers are sent, but before the response body is sent. This stage is only generated for long-running requests(e.g watch).
+	- ResponseComplete - The response body has been completed and no more bytes will be sent.
+	- Panic: Events generated when a panic occured.
 	
-	ls
+77. Audit Policy:
+What events should be recorded and what data should these contain?
+#Audit Policy Rule LEVELS
+	- None: don't log events that match this rule.
+	- Metadata: log request metadata(requesting user, timestamp, resource, verb, etc.) but not request or response body.
+	- Request: log event metadata and request body but not response body. This does not apply for non-resource requests.
+	- RequestResponse: log event metadata, request and response bodies. This does not apply for non-resource requests.
 	
-	curl https://kubernetes -k
-	#it gives forbidden error
+78. Enable Audit logging in ApiServer:
+
+Configure apiServer to store the Audit logs in JSON format
+
+cd /etc/kubernetes/
+mkdir audit
+vim policy.yaml
+C:\Users\Pranavi\Downloads\policy.yaml
+	apiVersion: audit.k8s.io/v1
+	kind: Policy
+	rules:
+	- level: Metadata
 	
-	curl https://kubernetes -k -H "Authorization: Bearer <<paste token here>>"
-	forbidden user again
-
-26. Disable ServiceAccount mounting
-
-#no need pod to talk with kubernetes api
-reference URL : https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/
-
-vim pod.yaml
-
-spec:
-  automountServiceAccountToken: false
-  serviceAccount: test
-  
-k apply -f pod.yaml --force
-
-k exec -it pod test sh
-
-mount | grep sec
-
-kubectl get pods
-
-kubectl describe pod test
-
-
-27. Limit ServiceAccounts permissions using RBAC to edit resources
-
-Limit ServiceAccount permissions using RBAC to edit resources
-
-#by default all pods using default SA - default service account dont have any permissions to do
-
-#let's give RBAC permissions to test sa
-
-k get cluster al| grep edit
-edit
-
-#let's create clusterrole binding for 
-
-#check permissions
-k auth can-i delete secrets --as system:serviceaccount:default"test
-
-#create clusterrole binding for test sa
-k create clusterrolebinding test --clusterrole edit --serviceaccount default:test
-
-#check permissions
-k auth can-i delete secrets --as system:serviceaccount:default"test
-
-------------
-Section 11: Cluster Hardening - Restrict API ACCESS
-
-28. Enable/Disable Anonymous ACCESS
-
-cat /etc/kubernetes/manifests/kube-apiserver.ymal
-
-curl https://localhost:6443 -k
-#forbidden
-
-vim /etc/kubernetes/manifests/kube-apiserver.ymal
+#Need to add below lines of code in apiServer
 
 spec:
   containers:
   - command:
-    - --anonymous-auth=false
-
-kubectl get nodes
-
-curl https://localhost:6443 -k
-#unauthorized
-
-
-29. Let's perform a Manual API Request
-
-#certifciate information from kubeconfig file to do manual request
-
-k config view 
-
-k config view --raw
-
-cat ~/.kube/config
-
-echo <<certificate authorizty>> | base64 -d > ca
-
-echo <<client certificate>> | base64 -d > ca.crt
-
-echo <<client key>> | base64 -d > ca.key
-
-curl https://<<ipaddress>>:6443
-
-curl https://<<ipaddress>>:6443 --cacert ca --cert crt --key key
-
-
-30. External ApiServer ACCESS
-
-#how to access kubernetes access from outside
-k get svc
-
-k edit svc
-	type: NodePort
+    - kube-apiserver
+    - --audit-policy-file=/etc/kubernetes/audit/policy.yaml       # add
+    - --audit-log-path=/etc/kubernetes/audit/logs/audit.log       # add
+    - --audit-log-maxsize=500                                     # add
+    - --audit-log-maxbackup=5                                     # add
 	
-k get svc
-
-#on local machines
-curl https://<<external ip address>>:32278
-#forbiddden
-
-#copy kubeconfig file master to local machines
-k config view --raw
-
-k get pods
-
-k get pods --kubeconfig config
-
-k --kubeconfig config get pods
-
-#incase if we get any certificate error
-
-cat /etc/kubernetes/pki/apiserver.crt
-
-openssl x509 -in /etc/kubernetes/pki/apiserver.crt
-
-openssl x509 -in /etc/kubernetes/pki/apiserver.crt -text
-
-31. NodeRestriction AdmissionController
-
-NodeRestriction:
-Admission controller and can be enabled by this arg... --enable-admission-plugins=NodeRestriction
-
-it limit the node labels a kubelet can modify, it can only modify the own node labels and also the pods running on itself not on any node in the cluster.
-
-------------
-
-Section 12: Cluster Hardening - Upgrade Kubernetes
-
-32. Verify NodeRestiction
-
-cat /etc/kubernetes/manifests/kube-apiserver.yaml
-	- --enable-admission-plugins=NodeRestiction
-
-#let's go workder node and see what this controller do
-
-ssh node01
-
-kubectl config view
-
-cat /etc/kubernetes/kubelet.conf
-
-export KUBECONFIG=/etc/kubernetes/kubelet.conf
-kubectl config view
-
-k get ns
-#gives forbidden error
-
-k get nodes
-
-k label node master cks/test=yes
-#it will not modify
-
-#lable node itself
-k label node node cks/test=yes
-#succeed
-
-k label node worker node-restrictions.kubernetes.io/test=yes
-#forbidden
-
-33. Introduction - Update your cluster
-
-Why to update frequently???
-	- Latest support
-	- Security fixes
-	- Bug fixes
-	- Stay up to date for dependencies
+	volumeMounts:
+    - mountPath: /etc/ssl/certs
+      name: ca-certs
+      readOnly: true
+    - mountPath: /etc/ca-certificates
+      name: etc-ca-certificates
+      readOnly: true
+    - mountPath: /etc/kubernetes/pki
+      name: k8s-certs
+      readOnly: true
+    - mountPath: /usr/local/share/ca-certificates
+      name: usr-local-share-ca-certificates
+      readOnly: true
+    - mountPath: /usr/share/ca-certificates
+      name: usr-share-ca-certificates
+      readOnly: true
+    - mountPath: /etc/kubernetes/audit      # add
+      name: audit                           # add
+  hostNetwork: true
+  priorityClassName: system-node-critical
+  volumes:
+  - hostPath:                               # add
+      path: /etc/kubernetes/audit           # add
+      type: DirectoryOrCreate               # add
+    name: audit                             # add
 	
-How to update cluster:
-	master components --> apiserver, controller-manager, schduler
+#Wait for few minutes
+
+# check the logs in below path
+
+tail -f /etc/kubernetes/audit/logs/audit.log
+
+79. Create a Secret and Investigate the JSON Audit Logs
+
+k create secret generic my-secret --from-literal=user=pavan
+
+cat audit.log | grep my-secret
+
+#Edit secret
+edit secret my-secret
+
+	apiVersion: v1
+	data:
+	  user: pavan
+	  passwd: Pavan
+	kind: Secret
 	
-	workder components --> kubelet, kube-proxy
-	
-	components should always have the same minior version of your api server or one minor version below
-	
-How to upgrade node:
-	
-	#drain the node
-	kubectl drain --> sefely evict all the pods from node(kubectl cordon)
-	
-	#we will update the components, kubectl uncordon (unmark the nodes)
-	
-34. Create a cluster with old version
+cat audit.log | grep my-secret
+------
+Section 25: System Hardening - Kernel Hardening
 
-files:
-C:\Users\Pranavi\Downloads\master.sh
-C:\Users\Pranavi\Downloads\worker.sh
+80. AppArmor
+AppArmor is a Linux Kernel Security Module that allows the system administrator to restrict programs capabilities with per-program profiles. Profiles can allow capabilities like network access, raw socket access and permission to read, write or execute files on matching paths.
 
-35. Upgrade Master and worker node
+81. AppArmor for curl
 
-#check version
-kubectl version
+curl facebook.ccm -v
+aa-status
 
-#drain master
-kubectl drain master
+#Create a profiles
+#Install apparmor utils
 
-kubectl drain master --ignore=daemonsets
+apt install apparmor-utils -y
 
-#check available minor version
-apt-cache show kubeadm | grep 1.20
+#generate
+aa-genprof
 
-apt install kubeadm=1.20.10-00 kubelet=1.20.10-00 kubectl
-kubectl version
+aa-genprof curl
+#Press F for finish
 
-kubeadm upgrade plan
+#let curl the page
+curl facebook.com -v
 
-kubeadm upgrade apply v1.20.10
+aa-status
+press F
 
-#update worker node aswell
-#drain worker node
+#Check the changes
+curl usr.bin.curl
 
-kubectl drain worker --ignore=daemonsets
-
-apt install kubeadm=1.20.10-00 kubelet=1.20.10-00 kubectl
-kubectl version
-
-kubeadm upgrade node
-
-#master
-kubectl get nodes
-
-kubectl uncordon worker
-kubectl uncordon master
-
-----------
-Section 3: Cluster Setup - Use Network security policies to restrict cluster level access
-
-4. Introduction networkpolicy
-- They are firewall rules in kubernetes
-- Implemented by Network plugins like calico, weave, flannel
-- We can restrict Ingress / Egress for a group of pods based on certain rules and conditions
-	Ingress = Incoming traffic
-	Egress = outgoing traffic
-
-What if we dont have network policies
-By default every pod can access to any pod and pods are not isolated as well.
-
-5. Create default deny networkpolicy
-file: C:\Users\Pranavi\Downloads\default-deny.yaml
-
-k get pods
-
-k run pod-1 --image=nginx
-
-k run pod-2 --image=nginx
-
-k expose pod-1 --port 80
-
-k expose pod-2 --port 80
-
-k get svc,pods
-
-k exec -it pod-1 sh
-
-	curl pod-2
-	exit
-	
-k exec -it pod-2 bash
-	curl pod-1
-	exit
-	
-k exec pod-1 --curl pod-2
-
-k exec pod-2 --curl pod-1
-
-#Create a network policy
-reference URL : https://kubernetes.io/docs/concepts/services-networking/network-policies/
-
-#copy example file
-
-vim policy-1.yaml
-
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: test-network-policy
-  namespace: default
-spec:
-  podSelector: {}
-  policyTypes:
-  - Ingress
-  - Egress
-
-kubectl apply -f policy-1.yaml
-
-k exec pod-1 --curl pod-2
-#it wont work
-k exec pod-2 --curl pod-1
-#it wont work
-
-6. Create Egress and Ingress Rules
-files:
-C:\Users\Pranavi\Downloads\dns-pod.yaml
-C:\Users\Pranavi\Downloads\egress-pod.yaml
-C:\Users\Pranavi\Downloads\ingress-pod.yaml
-
-#will see how to make communication from pod-1 to pod-2
-
-k get networkpolicy
-
-#create egress policy from pod1 to pod-2
-
-pod-1 -------egress----->>> pod-2
-vim egress.yaml
-
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: egress-pod-1
-  namespace: default
-spec:
-  podSelector:
-    matchLabels:
-      run: pod-1
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - podSelector:
-        matchLabels:
-          run: pod-2
-
-k apply -f egress.yaml
-
-
-pod-1 <<<-------ingress----- pod-2
-
-vim ingress.yaml
-
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ingress-pod-2
-  namespace: default
-spec:
-  podSelector:
-    matchLabels:
-      run: pod-2
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          run: pod-1
-
-
-k apply -f ingress.yaml
-
-k get networkpolicies
-
-k exec pod-1 -- curl pod-2
-#it failed to do name resolution because default deny policiy block dns as well
-so we can curl with ipaddress
-
-#Create another rule for dns
-
-vim network-policy.yaml
-
-kind: NetworkPolicy
-metadata:
-  name: dns
-  namespace: default
-spec:
-  podSelector: {}
-  policyTypes:
-  - Egress
-  egress:
-  - ports:
-    - port: 53
-      protocol: UDP
-    - port: 53
-      protocol: TCP
-
-k apply -f network-policy.yaml
-
-
-7. Create another network policy for different name space
-
-k create ns prod
-
-k run pod-3 --image=nginx -n prod
-
-k expose pod pod-3  --port=80 -n prod
-
-k edit ns prod
-
-	metadata:
-	  ns: prod
-
-k edit ns default
-
-	metadata:
-	  ns: default
-	  
-#Create egress rules from pod2(default) to pod3(prod)
-
-vim pod-2 network policy
-
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ingress-pod-2
-  namespace: default
-spec:
-  podSelector:
-    matchLabels:
-      run: pod-2
-  policyTypes:
-  - Ingress
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          run: pod-1
-  egress:
-  - to:
-    - namespaceSelector:
-	    matchLabels:
-		  ns: prod
- 
-k apply -f ingress.yaml
-
-#create dns policy in prod namespace
-
-		  
-		  
-Section 4: Cluster Setup - Minimize use of, and access to GUI elements
-8. Install kubernetes Dashboard
-
-#Install Kubernetes Dashboard
-Reference URL : https://kubernetes.io/docs/tasks/access-application-cluster/web-ui-dashboard/
-
-#Deploying the Dashboard UI
-
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.4.0/aio/deploy/recommended.yaml
-
-k get ns
-
-k get all -n kubernetes-dashboard
-
-9. Insecure Access from Outside
-
-#Edit kuberneteds deployment
-k edit deploy kubernetes-dashboard
-
-spec:
-  containers:
-  - args:
-    - --insecure-port=9090
-  
-#add an arguement for insecure port
-# delete auto generate certificates
-
-spec:
-  containers:
-  - args:
-    - --auto-generate-certificates
-	#Delete liveness probe or update port
-	livenessProbe:
-	  failureThreshold: 3
-	  httpGet:
-	    path: /
-		port: 9090
-		scheme: HTTP
-	
-#update service from clusterIP to NodePort
-k edit svc
-
-ports:
-- port: 9090
-  protocol: TCP
-  targetPort: 9090
-type: NodePort
-
-k get all -n kubernetes-dashboard
-
-10. RBAC for Kubernetes Dashboard
-
-#default service account dont have permissions
-k get sa -n kubernetes-dashboard
-
-k get clusterrole | grep view
-
-#assign the serviceaccount to view clusterrole
-
-#create rolebinding
-k create rolebinding  insure --serviceaccount kubernetes-dashboard:kubernetes-dashboard --clusterrole view -n kubernetes-dashboard
-
-#refresh brower
-
-#Create clusterrolebinding to have clustewide access
-k create clusterrolebinding  insure --serviceaccount kubernetes-dashboard:kubernetes-dashboard --clusterrole view -n kubernetes-dashboard
-
-----------------
-Section 5: Cluster Setup - Properly set up ingress objects with security control
-
-11. Delete all your NetworkPolicies
-DELETE ALL existing NetworkPolicies from previous session. 
-
-12. Create an Ingress
-Reference URL : https://kubernetes.github.io/ingress-nginx/deploy/
-
-Bare metal clusters¶
-Using NodePort:
-
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.0.5/deploy/static/provider/baremetal/deploy.yaml
-
-kubectl get all -n ingress-nginx
-
-take the worker node ip and try access with nodeport in browser: it gives 404 error
-
-Reference URL: https://kubernetes.io/docs/concepts/services-networking/ingress/
-
-ingress-nginx.yaml
-
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: minimal-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-spec:
-  rules:
-  - http:
-      paths:
-      - path: /service1
-        pathType: Prefix
-        backend:
-          service:
-            name: service1
-            port:
-              number: 80
-      - path: /service2
-        pathType: Prefix
-        backend:
-          service:
-            name: service2
-            port:
-              number: 80
-			  
-kubectl run pod1 --image=nginx
-
-kubectl run pod2 --image=nginx
-
-k apply -f ingress.yaml
-
-k expose pod pod1 --port 80 --name service1
-
-k expose pod pod2 --port 80 --name service2
-
-#test access now
-
-http://<<external ip>>:<<nodeport>>/service1
-
-13. Secure an Ingress
-
-#access securly
-k get nodes -o wide
-
-curl https://<<external ip>>:30949/service2 -kv
-#It will be accessible with fake certificate.
-lets create self singned certificate and access ingress controller
-
-openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -day 365 -nodes
-	Common Name: secure-ingress.com
-	
-k create secret tls secure-ingress --cert=cert.pem --key=key.pem
-
-ingress-nginx.yaml
-
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: minimal-ingress
-  annotations:
-    nginx.ingress.kubernetes.io/rewrite-target: /
-spec:
-  tls:
-  - hosts:
-    -  secure-ingress.com
-	secretName: secure-ingress
-  rules:
-  - host: secure-ingress.com
-    http:
-      paths:
-      - path: /service1
-        pathType: Prefix
-        backend:
-          service:
-            name: service1
-            port:
-              number: 80
-      - path: /service2
-        pathType: Prefix
-        backend:
-          service:
-            name: service2
-            port:
-              number: 80
-
-k apply -f ingress.yaml
-
-
-curl https://<<external ip>>:30949/service2 -kv
-#still shows that the connectivity with fake certificate
-
-curl https://secure-ingress.com:30499/service2 -kv
-
------------
-
-Section 6: Protect node metadata and endpoints
-
-14. Accessing Node Metadata
-
-#aws metadata will be accessible from inside container
-
-15. Protect Node Metadata via NetworkPolicy
-
-#create network policy to protect medata data
-
-vim networkpolicy metadata
-
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: metadata-deny
-  namespace: default
-spec:
-  podSelector: {}
-  policyTypes:
-  - Egress
-  egress:
-  - to:
-    - ipBlock:
-	    cidr:0.0.0.0/0
-		except:
-		- 169.254.169.254/32
-	
-k apply -f netowrkpolicy.yaml
-
-
-
-
---------
-Section 7: Use CIS benchmark to review the security configuration of kubernetes components
-
-16. kube-bench
-
-#server hardeing with kube-bench
-reference url: https://github.com/aquasecurity/kube-bench
-
-https://raw.githubusercontent.com/aquasecurity/kube-bench/main/job.yaml
-
-kubectl create -f https://raw.githubusercontent.com/aquasecurity/kube-bench/main/job.yaml
-
-kubectl get pods
-
-kubectl logs kube-bench-6n3cr
-
-
--------
-
-Section 8: verify platform binaries before deploying
-
-17. Download and verify kubernetes release
-
-kubectl version
-
-wget https://dl.k8s.io/v1.22.0/kubernetes.tar.gz
-
-sha512sum kubernetes-server-linx-amd64.tar.gz
-
-
-18. Verify apiserver binary running in our cluster
-
-kubectl get nodes -o wide
-
-find server binaries
-
-wget https://dl.k8s.io/v1.22.0/kubernetes.tar.gz
-
-tar xzf kubernetes-server-linx-amd64.tar.gz
-
-cd kubernetes/server/bin/
-sha512sum kube-apiserver
-
-#from cluster
-
-docker ps | grep kube-apiserver
-
-#copy all filesystem from container to local server
-docker cp <<container_id>>:/ container
-
-cd container
+cd /etc/apparmor.d
 ls
+cat usr.bin.curl
 
-find container/ | grep kube-apiserver
-output: container/user/local/bin/kube-apiserver
+aa-logprof
+#Press A to allow
 
-sha512sum container container/user/local/bin/kube-apiserver
+82. Create a profile for nginx container
 
------
-Section 2: Create Kubernetes Cluster
+vim /etc/apparmor.d/docker-nginx
 
-2. Create kubernetes Cluster and look at some ERRORS!!
-
-create cluster using kubeadm
-
-#spin out instances
+	#include <tunables/global>
 
 
-3. To create cluster in easy way just download these files
+profile docker-nginx flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
 
-files: C:\Users\Pranavi\Downloads\install_master.sh
-C:\Users\Pranavi\Downloads\install_worker.sh
+  network inet tcp,
+  network inet udp,
+  network inet icmp,
+
+  deny network raw,
+
+  deny network packet,
+
+  file,
+  umount,
+
+  deny /bin/** wl,
+  deny /boot/** wl,
+  deny /dev/** wl,
+  deny /etc/** wl,
+  deny /home/** wl,
+  deny /lib/** wl,
+  deny /lib64/** wl,
+  deny /media/** wl,
+  deny /mnt/** wl,
+  deny /opt/** wl,
+  deny /proc/** wl,
+  deny /root/** wl,
+  deny /sbin/** wl,
+  deny /srv/** wl,
+  deny /tmp/** wl,
+  deny /sys/** wl,
+  deny /usr/** wl,
+
+  audit /** w,
+
+  /var/run/nginx.pid w,
+
+  /usr/sbin/nginx ix,
+
+  deny /bin/dash mrwklx,
+  deny /bin/sh mrwklx,
+  deny /usr/bin/top mrwklx,
+
+
+  capability chown,
+  capability dac_override,
+  capability setuid,
+  capability setgid,
+  capability net_bind_service,
+
+  deny @{PROC}/* w,   # deny write for all files directly in /proc (not in a subdir)
+  # deny write to files not in /proc/<number>/** or /proc/sys/**
+  deny @{PROC}/{[^1-9],[^1-9][^0-9],[^1-9s][^0-9y][^0-9s],[^1-9][^0-9][^0-9][^0-9]*}/** w,
+  deny @{PROC}/sys/[^k]** w,  # deny /proc/sys except /proc/sys/k* (effectively /proc/sys/kernel)
+  deny @{PROC}/sys/kernel/{?,??,[^s][^h][^m]**} w,  # deny everything except shm* in /proc/sys/kernel/
+  deny @{PROC}/sysrq-trigger rwklx,
+  deny @{PROC}/mem rwklx,
+  deny @{PROC}/kmem rwklx,
+  deny @{PROC}/kcore rwklx,
+
+  deny mount,
+
+  deny /sys/[^f]*/** wklx,
+  deny /sys/f[^s]*/** wklx,
+  deny /sys/fs/[^c]*/** wklx,
+  deny /sys/fs/c[^g]*/** wklx,
+  deny /sys/fs/cg[^r]*/** wklx,
+  deny /sys/firmware/** rwklx,
+  deny /sys/kernel/security/** rwklx,
+}
+
+
+#create a profile
+apparmor_parser /etc/apparmor.d/docker-nginx
+
+#Check for profile
+aa-status
+
+#Create a container witth the docker-nginx profile
+docker run --security-opt apparmor=docker-nginx -d nginx
+
+# docker exec -it "container id" sh
+
+# touch /root/test
+	output: permission denied
+
+83. AppArmor for Kubernetes Nginx
+
+# generate pod defination file
+k run secure --image=nginx -o yaml --dry-run=client > pod.yaml
+
+cat pod.yaml
+
+vim pod.yaml
+# resource name : https://kubernetes.io/docs/tutorials/clusters/_print/ --> Pod annotation
+
+#Update annotations
+
+apiVersion: v1
+kind: Pod
+metadata:
+  annotations:
+    container.apparmor.security.beta.kubernetes.io/secure: localhost: docker-nginx
+
+:wq!
+
+k apply -f pod.yaml
+
+k get pods
+
+84. Seccomp:
+It stands for Secure Computing Mode. It is a security facility in linux kernel and it restricts the execution of syscalls.
+
+85. Seccomp for Docker Nginx
+vim default.json
+	C:\Users\Pranavi\Downloads\default.json
+	
+#Create a container
+docker run --security-opt seccomp=default.json nginx
+
+#Let's modify default.json
+#delete write
+
+#Create a container again
+docker run --security-opt seccomp=default.json nginx
+	output: docker: Error response from daemon: OCI runtime start failed: cannot start an already running container: unknown
+	
+86. Seccomp for Kubernetes Nginx:
+#move default.json file to kubelet
+cd /var/lib/kubelet
+mkdir seccomp
+
+mv defaul.json /var/lib/kubelet/seccomp/
+
+vim pod.yaml
+#delete annotation
+#reference : https://kubernetes.io/docs/tutorials/clusters/seccomp/
+-----------
