@@ -36,12 +36,12 @@ apt-cache madison kubeadm kubelet kubectl cri-tools
 
 # pick exact version shown by apt-cache madison, example below is placeholder
 VERSION="1.33.4-1.1"
-sudo apt-get install -y kubelet=${VERSION} kubeadm=${VERSION} kubectl=${VERSION} cri-tools=1.33.0-1.1
+sudo apt-get install -y kubelet=${VERSION} kubeadm=${VERSION} kubectl=${VERSION} cri-tools=1.33.0-1.1 --allow-change-held-packages
 sudo apt-mark hold kubelet kubeadm kubectl cri-tools
 sudo systemctl enable --now kubelet
 
 # init (single node)
-sudo kubeadm init --pod-network-cidr=192.168.0.0/16 --upload-certs
+sudo kubeadm init --pod-network-cidr=192.168.0.0/16 --upload-certs --ignore-preflight-errors=NumCPU #Change if you have 2 CPUs
 
 # user kubeconfig
 mkdir -p $HOME/.kube
@@ -51,3 +51,7 @@ sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 # install Calico
 kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.3/manifests/calico.yaml
+
+# remove the taint from control plane node to use single node cluster
+kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+
