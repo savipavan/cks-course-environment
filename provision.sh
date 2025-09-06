@@ -32,8 +32,10 @@ curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.33/deb/Release.key | sudo gpg --
 echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.33/deb/ /" | sudo tee /etc/apt/sources.list.d/kubernetes.list
 sudo apt-get update
 
+apt-cache madison kubeadm kubelet kubectl cri-tools
+
 # pick exact version shown by apt-cache madison, example below is placeholder
-VERSION="1.33.4-00"
+VERSION="1.33.4-1.1"
 sudo apt-get install -y kubelet=${VERSION} kubeadm=${VERSION} kubectl=${VERSION} cri-tools=1.33.0-1.1
 sudo apt-mark hold kubelet kubeadm kubectl cri-tools
 sudo systemctl enable --now kubelet
