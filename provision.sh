@@ -34,7 +34,7 @@ sudo apt-get update
 
 # pick exact version shown by apt-cache madison, example below is placeholder
 VERSION="1.33.4-00"
-sudo apt-get install -y kubelet=${VERSION} kubeadm=${VERSION} kubectl=${VERSION} cri-tools=${VERSION}
+sudo apt-get install -y kubelet=${VERSION} kubeadm=${VERSION} kubectl=${VERSION} cri-tools=1.33.0-1.1
 sudo apt-mark hold kubelet kubeadm kubectl cri-tools
 sudo systemctl enable --now kubelet
 
