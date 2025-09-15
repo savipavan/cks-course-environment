@@ -53,7 +53,29 @@ sudo chown $(id -u):$(id -g) $HOME/.kube/config
 # kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.3/manifests/calico.yaml
 
 #Cilium installation
-kubectl apply -f https://raw.githubusercontent.com/cilium/cilium/v1.16/install/kubernetes/quick-install.yaml
+CILIUM_CLI_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/cilium-cli/main/stable.txt)
+CLI_ARCH=amd64
+if [ "$(uname -m)" = "aarch64" ]; then CLI_ARCH=arm64; fi
+curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum
+sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin
+rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+
+cilium install --version 1.18.1
+cilium status --wait
+
+cilium hubble enable
+cilium status --wait
+
+HUBBLE_VERSION=$(curl -s https://raw.githubusercontent.com/cilium/hubble/master/stable.txt)
+HUBBLE_ARCH=amd64
+if [ "$(uname -m)" = "aarch64" ]; then HUBBLE_ARCH=arm64; fi
+curl -L --fail --remote-name-all https://github.com/cilium/hubble/releases/download/$HUBBLE_VERSION/hubble-linux-${HUBBLE_ARCH}.tar.gz{,.sha256sum}
+sha256sum --check hubble-linux-${HUBBLE_ARCH}.tar.gz.sha256sum
+sudo tar xzvfC hubble-linux-${HUBBLE_ARCH}.tar.gz /usr/local/bin
+rm hubble-linux-${HUBBLE_ARCH}.tar.gz{,.sha256sum}
+
+
 
 # remove the taint from control plane node to use single node cluster
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
