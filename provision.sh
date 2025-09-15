@@ -50,7 +50,10 @@ sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 
 # install Calico
-kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.3/manifests/calico.yaml
+# kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.30.3/manifests/calico.yaml
+
+#Cilium installation
+kubectl apply -f https://raw.githubusercontent.com/cilium/cilium/v1.16/install/kubernetes/quick-install.yaml
 
 # remove the taint from control plane node to use single node cluster
 kubectl taint nodes --all node-role.kubernetes.io/control-plane-
