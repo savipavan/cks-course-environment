@@ -64,6 +64,22 @@ rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
 cilium install --version 1.18.1
 cilium status --wait
 
+# remove the taint from control plane node to use single node cluster
+kubectl taint nodes --all node-role.kubernetes.io/control-plane-
+
+# trivy installation
+curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/master/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+# checkov installation
+apt install python3-pip
+pip3 install checkov
+
+# Install BOM
+wget https://github.com/kubernetes-sigs/bom/releases/download/v0.6.0/bom-amd64-linux
+mv bom-amd64-linux bom
+chmod +x bom
+mv bom /usr/local/bin
+
 cilium hubble enable
 cilium status --wait
 
@@ -77,6 +93,4 @@ rm hubble-linux-${HUBBLE_ARCH}.tar.gz{,.sha256sum}
 
 
 
-# remove the taint from control plane node to use single node cluster
-kubectl taint nodes --all node-role.kubernetes.io/control-plane-
 
